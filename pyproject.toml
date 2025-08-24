@@ -1,0 +1,17 @@
+[project]
+name = "sortphotos"
+description = ""
+version = "1.0.0a"
+authors = [
+  {name = "Debruycker Vincent", email = ""}
+]
+maintainers = [
+  {name = "Debruycker Vincent", email = ""}
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+include = ["sortphotos.py", "progressbar.py"]
