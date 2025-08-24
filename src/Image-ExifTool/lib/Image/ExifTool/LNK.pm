@@ -7,6 +7,7 @@
 #
 # References:   1) http://msdn.microsoft.com/en-us/library/dd871305(PROT.10).aspx
 #               2) http://www.i2s-lab.com/Papers/The_Windows_Shortcut_File_Format.pdf
+#               3) https://harfanglab.io/insidethelab/sadfuture-xdspy-latest-evolution/#tid_specifications_ignored
 #------------------------------------------------------------------------------
 
 package Image::ExifTool::LNK;
@@ -14,8 +15,9 @@ package Image::ExifTool::LNK;
 use strict;
 use vars qw($VERSION);
 use Image::ExifTool qw(:DataAccess :Utils);
+use Image::ExifTool::Microsoft;
 
-$VERSION = '1.07';
+$VERSION = '1.11';
 
 sub ProcessItemID($$$);
 sub ProcessLinkInfo($$$);
@@ -273,7 +275,9 @@ sub ProcessLinkInfo($$$);
             6 => 'Ram Disk',
         },
     },
-    DriveSerialNumber => { },
+    DriveSerialNumber => {
+        PrintConv => 'join("-", unpack("A4 A4", sprintf("%08X", $val)))',
+    },
     VolumeLabel => { },
     LocalBasePath => { },
     CommonNetworkRelLink => { },
@@ -438,6 +442,8 @@ sub ProcessLinkInfo($$$);
     0x08 => {
         Name => 'CodePage',
         Format => 'int32u',
+        SeparateTable => 'Microsoft CodePage',
+        PrintConv => \%Image::ExifTool::Microsoft::codePage,
     },
 );
 
@@ -505,9 +511,10 @@ sub ProcessLinkInfo($$$)
     if ($lif & 0x01) {
         # read Volume ID
         $off = Get32u($dataPt, 0x0c);
-        if ($off + 0x20 <= $dataLen) {
+        if ($off and $off + 0x20 <= $dataLen) {
             # my $len = Get32u($dataPt, $off);
             $et->HandleTag($tagTablePtr, 'DriveType', undef, %opts, Start=>$off+4);
+            $et->HandleTag($tagTablePtr, 'DriveSerialNumber', undef, %opts, Start=>$off+8);
             $pos = Get32u($dataPt, $off + 0x0c);
             if ($pos == 0x14) {
                 # use VolumeLabelOffsetUnicode instead
@@ -542,6 +549,7 @@ sub ProcessLinkInfo($$$)
         $off = Get32u($dataPt, 0x14);
         if ($off and $off + 0x14 <= $dataLen) {
             my $siz = Get32u($dataPt, $off);
+            return 0 if $off + $siz > $dataLen; 
             $pos = Get32u($dataPt, $off + 0x08);
             if ($pos > 0x14 and $siz >= 0x18) {
                 $pos = Get32u($dataPt, $off + 0x14);
@@ -549,7 +557,7 @@ sub ProcessLinkInfo($$$)
             } else {
                 undef $unicode;
             }
-            $val = GetString($dataPt, $pos, $unicode);
+            $val = GetString($dataPt, $off + $pos, $unicode);
             if (defined $val) {
                 $size = length $val;
                 $val = $et->Decode($val, 'UCS2') if $unicode;
@@ -564,7 +572,7 @@ sub ProcessLinkInfo($$$)
                 } else {
                     undef $unicode;
                 }
-                $val = GetString($dataPt, $pos, $unicode);
+                $val = GetString($dataPt, $off + $pos, $unicode);
                 if (defined $val) {
                     $size = length $val;
                     $val = $et->Decode($val, 'UCS2') if $unicode;
@@ -643,17 +651,32 @@ sub ProcessLNK($$)
     my @strings = qw(Description RelativePath WorkingDirectory
                      CommandLineArguments IconFileName);
     for ($i=0; $i<@strings; ++$i) {
+        my ($val, $limit);
         my $mask = 0x04 << $i;
         next unless $flags & $mask;
         $raf->Read($buff, 2) or return 1;
-        $len = unpack('v', $buff);
+        my $pos = $raf->Tell();
+        $len = unpack('v', $buff) or next;
+        # Windows doesn't follow their own specification and limits the length
+        # for most of these strings (ref 3)
+        if ($i != 3 and $len >= 260) {
+            $limit = 1;
+            if ($len > 260) {
+                $len = 260;
+                $et->Warn('LNK string data overrun! Possible security issue');
+            }
+        }
         $len *= 2 if $flags & 0x80;  # characters are 2 bytes if Unicode flag is set
         $raf->Read($buff, $len) or return 1;
-        my $val;
+        # remove last character if string is at length limit (Windows treats this as a null)
+        if ($limit) {
+            $len -= $flags & 0x80 ? 2 : 1;
+            $buff = substr($buff, 0, $len);
+        }
         $val = $et->Decode($buff, 'UCS2') if $flags & 0x80;
         $et->HandleTag($tagTablePtr, 0x30000 | $mask, $val,
             DataPt  => \$buff,
-            DataPos => $raf->Tell() - $len,
+            DataPos => $pos,
             Size    => $len,
         );
     }
@@ -699,7 +722,7 @@ information MS Shell Link (Windows shortcut) files.
 
 =head1 AUTHOR
 
-Copyright 2003-2018, Phil Harvey (phil at owl.phy.queensu.ca)
+Copyright 2003-2025, Phil Harvey (philharvey66 at gmail.com)
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
@@ -711,6 +734,8 @@ under the same terms as Perl itself.
 =item L<http://msdn.microsoft.com/en-us/library/dd871305(PROT.10).aspx>
 
 =item L<http://www.i2s-lab.com/Papers/The_Windows_Shortcut_File_Format.pdf>
+
+=item L<https://harfanglab.io/insidethelab/sadfuture-xdspy-latest-evolution/#tid_specifications_ignored>
 
 =back
 

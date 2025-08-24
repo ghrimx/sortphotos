@@ -12,39 +12,41 @@ require Exporter;
 
 use vars qw($VERSION @ISA @EXPORT_OK);
 
-$VERSION = '1.09';
+$VERSION = '1.14';
 @ISA = qw(Exporter);
 @EXPORT_OK = qw(ReadCSV ReadJSON);
 
 sub ReadJSONObject($;$);
 
-my %unescapeJSON = ( 't'=>"\t", 'n'=>"\n", 'r'=>"\r" );
+my %unescapeJSON = ( 't'=>"\t", 'n'=>"\n", 'r'=>"\r", 'b' => "\b", 'f' => "\f" );
 my $charset;
 
 #------------------------------------------------------------------------------
 # Read CSV file
-# Inputs: 0) CSV file name, file ref or RAF ref, 1) database hash ref, 2) missing tag value
+# Inputs: 0) CSV file name, file ref or RAF ref, 1) database hash ref,
+#         2) missing tag value, 3) delimiter if other than ','
 # Returns: undef on success, or error string
 # Notes: There are various flavours of CSV, but here we assume that only
 #        double quotes are escaped, and they are escaped by doubling them
-sub ReadCSV($$;$)
+sub ReadCSV($$;$$)
 {
     local ($_, $/);
-    my ($file, $database, $missingValue) = @_;
+    my ($file, $database, $missingValue, $delim) = @_;
     my ($buff, @tags, $found, $err, $raf, $openedFile);
 
     if (UNIVERSAL::isa($file, 'File::RandomAccess')) {
         $raf = $file;
         $file = 'CSV file';
     } elsif (ref $file eq 'GLOB') {
-        $raf = new File::RandomAccess($file);
+        $raf = File::RandomAccess->new($file);
         $file = 'CSV file';
     } else {
         open CSVFILE, $file or return "Error opening CSV file '${file}'";
         binmode CSVFILE;
         $openedFile = 1;
-        $raf = new File::RandomAccess(\*CSVFILE);
+        $raf = File::RandomAccess->new(\*CSVFILE);
     }
+    $delim = ',' unless defined $delim;
     # set input record separator by first newline found in the file
     # (safe because first line should contain only tag names)
     while ($raf->Read($buff, 65536)) {
@@ -53,18 +55,18 @@ sub ReadCSV($$;$)
     $raf->Seek(0,0);
     while ($raf->ReadLine($buff)) {
         my (@vals, $v, $i, %fileInfo);
-        my @toks = split ',', $buff;
+        my @toks = split /\Q$delim/, $buff;
         while (@toks) {
             ($v = shift @toks) =~ s/^ +//;  # remove leading spaces
             if ($v =~ s/^"//) {
                 # quoted value must end in an odd number of quotes
                 while ($v !~ /("+)\s*$/ or not length($1) & 1) {
                     if (@toks) {
-                        $v .= ',' . shift @toks;
+                        $v .= $delim . shift @toks;
                     } else {
                         # read another line from the file
                         $raf->ReadLine($buff) or last;
-                        @toks = split ',', $buff;
+                        @toks = split /\Q$delim/, $buff;
                         last unless @toks;
                         $v .= shift @toks;
                     }
@@ -78,12 +80,14 @@ sub ReadCSV($$;$)
         }
         if (@tags) {
             # save values for each tag
+            $fileInfo{_ordered_keys_} = [ ];
             for ($i=0; $i<@vals and $i<@tags; ++$i) {
                 # ignore empty entries unless missingValue is empty too
                 next unless length $vals[$i] or defined $missingValue and $missingValue eq '';
                 # delete tag (set value to undef) if value is same as missing tag
                 $fileInfo{$tags[$i]} =
                     (defined $missingValue and $vals[$i] eq $missingValue) ? undef : $vals[$i];
+                push @{$fileInfo{_ordered_keys_}}, $tags[$i];
             }
             # figure out the file name to use
             if ($fileInfo{SourceFile}) {
@@ -96,7 +100,7 @@ sub ReadCSV($$;$)
                 # terminate at first blank tag name (eg. extra comma at end of line)
                 last unless length $_;
                 @tags or s/^\xef\xbb\xbf//; # remove UTF-8 BOM if it exists
-                /^[-\w]+(:[-\w+]+)?#?$/ or $err = "Invalid tag name '${_}'", last;
+                /^([-_0-9A-Z]+:)*[-_0-9A-Z]+#?$/i or $err = "Invalid tag name '${_}'", last;
                 push(@tags, $_);
             }
             last if $err;
@@ -171,7 +175,7 @@ Tok: for (;;) {
         }
         # see what type of object this is
         if ($tok eq '{') {      # object (hash)
-            $rtnVal = { } unless defined $rtnVal;
+            $rtnVal = { _ordered_keys_ => [ ] } unless defined $rtnVal;
             for (;;) {
                 # read "KEY":"VALUE" pairs
                 unless (defined $key) {
@@ -187,6 +191,7 @@ Tok: for (;;) {
                     $pos = pos $$buffPt;
                     return undef unless defined $val;
                     $$rtnVal{$key} = $val;
+                    push @{$$rtnVal{_ordered_keys_}}, $key;
                     undef $key;
                 }
                 # scan to delimiting ',' or bounding '}'
@@ -236,7 +241,7 @@ Tok: for (;;) {
 
 #------------------------------------------------------------------------------
 # Read JSON file
-# Inputs: 0) JSON file name, file ref or RAF ref, 1) database hash ref,
+# Inputs: 0) JSON file name, file ref, RAF ref or SCALAR ref, 1) database hash ref,
 #         2) flag to delete "-" tags, 3) character set
 # Returns: undef on success, or error string
 sub ReadJSON($$;$$)
@@ -251,13 +256,16 @@ sub ReadJSON($$;$$)
         $raf = $file;
         $file = 'JSON file';
     } elsif (ref $file eq 'GLOB') {
-        $raf = new File::RandomAccess($file);
+        $raf = File::RandomAccess->new($file);
         $file = 'JSON file';
+    } elsif (ref $file eq 'SCALAR') {
+        $raf = File::RandomAccess->new($file);
+        $file = 'in memory';
     } else {
         open JSONFILE, $file or return "Error opening JSON file '${file}'";
         binmode JSONFILE;
         $openedFile = 1;
-        $raf = new File::RandomAccess(\*JSONFILE);
+        $raf = File::RandomAccess->new(\*JSONFILE);
     }
     my $obj = ReadJSONObject($raf);
     close JSONFILE if $openedFile;
@@ -330,22 +338,25 @@ Read CSV or JSON file into a database hash.
 2) Optional string used to represent an undefined (missing) tag value. 
 (Used for deleting tags.)
 
-3) [ReadJSON only] Optional character set for converting Unicode escape
-sequences in strings.  Defaults to "UTF8".  See the ExifTool Charset option
-for a list of valid settings.
+3) For ReadCSV this gives the delimiter for CSV entries, with a default of
+",".  For ReadJSON this is the character set for converting Unicode escape
+sequences in strings, with a default of "UTF8".  See the ExifTool Charset
+option for a list of valid character sets.
 
 =item Return Value:
 
 These functions return an error string, or undef on success and populate the
 database hash with entries from the CSV or JSON file.  Entries are keyed
 based on the SourceFile column of the CSV or JSON information, and are
-stored as hash lookups of tag name/value for each SourceFile.
+stored as hash lookups of tag name/value for each SourceFile.  The order
+of the keys (CSV column order or order in a JSON object) is stored as an
+ARRAY reference in a special "_ordered_keys_" element of this hash.
 
 =back
 
 =head1 AUTHOR
 
-Copyright 2003-2018, Phil Harvey (phil at owl.phy.queensu.ca)
+Copyright 2003-2025, Phil Harvey (philharvey66 at gmail.com)
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

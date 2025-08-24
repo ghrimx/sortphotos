@@ -21,7 +21,7 @@ sub ProcessKodakPatch($$$);
 sub WriteUnknownOrPreview($$$);
 sub FixLeicaBase($$;$);
 
-$VERSION = '2.06';
+$VERSION = '2.17';
 
 my $debug;          # set to 1 to enable debugging code
 
@@ -32,7 +32,7 @@ my $debug;          # set to 1 to enable debugging code
 #   write maker notes into a file with different byte ordering!
 # - Put these in alphabetical order to make TagNames documentation nicer.
 @Image::ExifTool::MakerNotes::Main = (
-    # decide which MakerNotes to use (based on camera make/model)
+    # decide which MakerNotes to use (based on makernote header and camera make/model)
     {
         Name => 'MakerNoteApple',
         Condition => '$$valPt =~ /^Apple iOS\0/',
@@ -90,8 +90,14 @@ my $debug;          # set to 1 to enable debugging code
         },
     },
     {
+        Name => 'MakerNoteDJIInfo',
+        Condition => '$$valPt =~ /^\[ae_dbg_info:/',
+        NotIFD => 1,
+        SubDirectory => { TagTable => 'Image::ExifTool::DJI::Info' },
+    },
+    {
         Name => 'MakerNoteDJI',
-        Condition => '$$self{Make} eq "DJI" and $$valPt !~ /^...\@AMBA/s',
+        Condition => '$$self{Make} eq "DJI" and $$valPt !~ /^(...\@AMBA|DJI)/s',
         SubDirectory => {
             TagTable => 'Image::ExifTool::DJI::Main',
             Start => '$valuePtr',
@@ -160,6 +166,10 @@ my $debug;          # set to 1 to enable debugging code
             Start => '$valuePtr',
             Base => 0, # (avoids warnings since maker notes are not self-contained)
         },
+        # 0x0011 - sensor code (ref IB)
+        # 0x0012 - camera model id?
+        # 0x0015 - camera model name
+        # 0x0016 - coating code (ref IB)
     },
     # (the GE X5 has really messed up EXIF-like maker notes starting with
     #  "GENIC\x0c\0" --> currently not decoded)
@@ -185,7 +195,7 @@ my $debug;          # set to 1 to enable debugging code
     },
     {
         Name => 'MakerNoteHP4', # PhotoSmart M627
-        Condition => '$$valPt =~ /^IIII\x04\0/',
+        Condition => '$$valPt =~ /^IIII[\x04|\x05]\0/',
         NotIFD => 1,
         SubDirectory => {
             TagTable => 'Image::ExifTool::HP::Type4',
@@ -567,6 +577,17 @@ my $debug;          # set to 1 to enable debugging code
         },
     },
     {
+        Name => 'MakerNoteOlympus3',
+        # new Olympus maker notes start with "OLYMPUS\0"
+        Condition => '$$valPt =~ /^OM SYSTEM\0/',
+        SubDirectory => {
+            TagTable => 'Image::ExifTool::Olympus::Main',
+            Start => '$valuePtr + 16',
+            Base => '$start - 16',
+            ByteOrder => 'Unknown',
+        },
+    },
+    {
         Name => 'MakerNoteLeica',
         # (starts with "LEICA\0\0\0")
         Condition => '$$self{Make} eq "LEICA"',
@@ -673,7 +694,7 @@ my $debug;          # set to 1 to enable debugging code
         Name => 'MakerNoteLeica8', # used by the Q (Type 116)
         # (Q (Typ 116) starts with "LEICA\0\x08\0", Make is "LEICA CAMERA AG")
         # (SL (Typ 601) and CL start with "LEICA\0\x09\0", Make is "LEICA CAMERA AG")
-        Condition => '$$valPt =~ /^LEICA\0[\x08\x09]\0/',
+        Condition => '$$valPt =~ /^LEICA\0[\x08\x09\x0a]\0/',
         SubDirectory => {
             TagTable => 'Image::ExifTool::Panasonic::Leica5',
             Start => '$valuePtr + 8',
@@ -687,7 +708,15 @@ my $debug;          # set to 1 to enable debugging code
         SubDirectory => {
             TagTable => 'Image::ExifTool::Panasonic::Leica9',
             Start => '$valuePtr + 8',
-            Base => '$start - 8',
+            ByteOrder => 'Unknown',
+        },
+    },
+    {
+        Name => 'MakerNoteLeica10', # used by the D-Lux7
+        Condition => '$$valPt =~ /^LEICA CAMERA AG\0/',
+        SubDirectory => {
+            TagTable => 'Image::ExifTool::Panasonic::Main',
+            Start => '$valuePtr + 18',
             ByteOrder => 'Unknown',
         },
     },
@@ -833,6 +862,25 @@ my $debug;          # set to 1 to enable debugging code
         },
     },
     {
+        Name => 'MakerNoteReconyx3',
+        Condition => '$$valPt =~ /^RECONYXH2\0/',
+        SubDirectory => {
+            TagTable => 'Image::ExifTool::Reconyx::Type3',
+            ByteOrder => 'Little-endian',
+        },
+    },
+    {
+        Name => 'MakerNoteRicohPentax',
+        # used by cameras such as the Ricoh GR III
+        Condition => '$$valPt=~/^RICOH\0(II|MM)/',
+        SubDirectory => {
+            TagTable => 'Image::ExifTool::Pentax::Main',
+            Start => '$valuePtr + 8',
+            Base => '$start - 8',
+            ByteOrder => 'Unknown',
+        },
+    },
+    {
         Name => 'MakerNoteRicoh',
         # (my test R50 image starts with "      \x02\x01" - PH)
         Condition => q{
@@ -891,9 +939,9 @@ my $debug;          # set to 1 to enable debugging code
     },
     {
         Name => 'MakerNoteSamsung2',
-        # Samsung EXIF-format maker notes
+        # Samsung EXIF-format maker notes (
         Condition => q{
-            $$self{Make} eq 'SAMSUNG' and ($$self{TIFF_TYPE} eq 'SRW' or
+            uc $$self{Make} eq 'SAMSUNG' and ($$self{TIFF_TYPE} eq 'SRW' or
             $$valPt=~/^(\0.\0\x01\0\x07\0{3}\x04|.\0\x01\0\x07\0\x04\0{3})0100/s)
         },
         SubDirectory => {
@@ -942,8 +990,12 @@ my $debug;          # set to 1 to enable debugging code
     },
     {
         Name => 'MakerNoteSigma',
-        # (starts with "SIGMA\0")
-        Condition => '$$self{Make}=~/^(SIGMA|FOVEON)/',
+        Condition => q{
+            return undef unless $$self{Make}=~/^(SIGMA|FOVEON)/i;
+            # save version number in "MakerNoteSigmaVer" member variable
+            $$self{MakerNoteSigmaVer} = $$valPt=~/^SIGMA\0\0\0.(.)/s ? ord($1) : -1;
+            return 1;
+        },
         SubDirectory => {
             TagTable => 'Image::ExifTool::Sigma::Main',
             Validate => '$val =~ /^(SIGMA|FOVEON)/',
@@ -1558,6 +1610,8 @@ IFD_TRY: for ($offset=$firstTry; $offset<=$lastTry; $offset+=2) {
                 }
                 # patch for Sony cameras like the DSC-P10 that have invalid MakerNote entries
                 next if $num == 12 and $$et{Make} eq 'SONY' and $index >= 8;
+                # patch for Apple ProRaw DNG which uses format 16 in the maker notes
+                next if $format == 16 and $$et{Make} eq 'Apple';
                 # (would like to verify tag ID, but some manufactures don't
                 #  sort entries in order of tag ID so we don't have much of
                 #  a handle to verify this field)
@@ -1777,7 +1831,7 @@ maker notes in EXIF information.
 
 =head1 AUTHOR
 
-Copyright 2003-2018, Phil Harvey (phil at owl.phy.queensu.ca)
+Copyright 2003-2025, Phil Harvey (philharvey66 at gmail.com)
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

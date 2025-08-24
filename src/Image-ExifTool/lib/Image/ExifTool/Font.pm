@@ -19,7 +19,7 @@ use strict;
 use vars qw($VERSION %ttLang);
 use Image::ExifTool qw(:DataAccess :Utils);
 
-$VERSION = '1.08';
+$VERSION = '1.11';
 
 sub ProcessOTF($$);
 
@@ -80,7 +80,7 @@ my %ttCharset = (
 %ttLang = (
   # Macintosh language codes (also used by QuickTime.pm)
   # oddities:
-  #   49 - Cyrllic version    83 - Roman
+  #   49 - Cyrillic version    83 - Roman
   #   50 - Arabic version     84 - Arabic
   #  146 - with dot above
   Macintosh => {
@@ -88,20 +88,20 @@ my %ttCharset = (
     1 => 'fr',     25 => 'pl',    49 => 'az',    73 => 'kn',    130 => 'ca',
     2 => 'de',     26 => 'hu',    50 => 'az',    74 => 'ta',    131 => 'la',
     3 => 'it',     27 => 'et',    51 => 'hy',    75 => 'te',    132 => 'qu',
-    4 => 'nl',     28 => 'lv',    52 => 'ka',    76 => 'si',    133 => 'gn',
+    4 => 'nl-NL',  28 => 'lv',    52 => 'ka',    76 => 'si',    133 => 'gn',
     5 => 'sv',     29 => 'smi',   53 => 'ro',    77 => 'my',    134 => 'ay',
     6 => 'es',     30 => 'fo',    54 => 'ky',    78 => 'km',    135 => 'tt',
     7 => 'da',     31 => 'fa',    55 => 'tg',    79 => 'lo',    136 => 'ug',
     8 => 'pt',     32 => 'ru',    56 => 'tk',    80 => 'vi',    137 => 'dz',
     9 => 'no',     33 => 'zh-CN', 57 => 'mn-MN', 81 => 'id',    138 => 'jv',
-    10 => 'he',    34 => 'nl',    58 => 'mn-CN', 82 => 'tl',    139 => 'su',
+    10 => 'he',    34 => 'nl-BE', 58 => 'mn-CN', 82 => 'tl',    139 => 'su',
     11 => 'ja',    35 => 'ga',    59 => 'ps',    83 => 'ms-MY', 140 => 'gl',
     12 => 'ar',    36 => 'sq',    60 => 'ku',    84 => 'ms-BN', 141 => 'af',
     13 => 'fi',    37 => 'ro',    61 => 'ks',    85 => 'am',    142 => 'br',
-    14 => 'iu',    38 => 'cs',    62 => 'sd',    86 => 'ti',    144 => 'gd',
-    15 => 'is',    39 => 'sk',    63 => 'bo',    87 => 'om',    145 => 'vg',
+    14 => 'el',    38 => 'cs',    62 => 'sd',    86 => 'ti',    144 => 'gd',
+    15 => 'is',    39 => 'sk',    63 => 'bo',    87 => 'om',    145 => 'gv',
     16 => 'mt',    40 => 'sl',    64 => 'ne',    88 => 'so',    146 => 'ga',
-    17 => 'tr',    41 => 'yi',    65 => 'sa',    89 => 'sw',    147 => 'rar',
+    17 => 'tr',    41 => 'yi',    65 => 'sa',    89 => 'sw',    147 => 'to',
     18 => 'hr',    42 => 'sr',    66 => 'mr',    90 => 'rw',    148 => 'el',
     19 => 'zh-TW', 43 => 'mk',    67 => 'bn',    91 => 'rn',    149 => 'kl',
     20 => 'ur',    44 => 'bg',    68 => 'as',    92 => 'ny',    150 => 'az',
@@ -117,7 +117,7 @@ my %ttCharset = (
   #  0x048c - no ISO equivalent
   #  0x081a/0x83c - sr-SP
   #  0x0c0a - modern?
-  #  0x2409 - Carribean country code not found in ISO 3166-1
+  #  0x2409 - Caribbean country code not found in ISO 3166-1
   Windows => {
     0x0401 => 'ar-SA', 0x0438 => 'fo',    0x0481 => 'mi',    0x1409 => 'en-NZ',
     0x0402 => 'bg',    0x0439 => 'hi',    0x0482 => 'oc',    0x140a => 'es-CR',
@@ -188,6 +188,9 @@ my %ttCharset = (
     },
     name => {
         SubDirectory => { TagTable => 'Image::ExifTool::Font::Name' },
+    },
+    C2PA => {
+        SubDirectory => { TagTable => 'Image::ExifTool::Jpeg2000::Main', Start => 20 },
     },
     PFM  => {
         Name => 'PFMHeader',
@@ -389,10 +392,12 @@ sub ProcessOTF($$)
     $$et{INDENT} .= '| ';
     $et->VerboseDir('TrueType', $numTables) if $verbose;
 
+    my %processTag = ( name => 1, C2PA => 1 );  # tags to process (skip all others)
+
     for ($pos=0; $pos<$len; $pos+=16) {
-        # look for 'name' table
+        # look for tags to process
         my $tag = substr($tbl, $pos, 4);
-        next unless $tag eq 'name' or $verbose;
+        next unless $processTag{$tag} or $verbose;
         my $offset = Get32u(\$tbl, $pos + 8);
         my $size   = Get32u(\$tbl, $pos + 12);
         unless ($raf->Seek($offset+$base, 0) and $raf->Read($buff, $size) == $size) {
@@ -400,14 +405,20 @@ sub ProcessOTF($$)
             next;
         }
         if ($verbose) {
-            $tag =~ s/([\0-\x1f\x80-\xff])/sprintf('\x%.2x',ord $1)/ge;
+            $tag =~ s/([\0-\x1f\x7f-\xff])/sprintf('\x%.2x',ord $1)/ge;
             my $str = sprintf("%s%d) Tag '%s' (offset 0x%.4x, %d bytes)\n",
                               $$et{INDENT}, $pos/16, $tag, $offset, $size);
             $et->VPrint(0, $str);
             $et->VerboseDump(\$buff, Addr => $offset) if $verbose > 2;
-            next unless $tag eq 'name';
+            next unless $processTag{$tag};
         }
         next unless $size >= 8;
+        unless ($tag eq 'name') {
+            my $tagTablePtr = GetTagTable('Image::ExifTool::Font::Main');
+            $et->HandleTag($tagTablePtr, $tag, undef, DataPt => \$buff, Size => length($buff));
+            next;
+        }
+        # process the 'name' tag
         my $entries = Get16u(\$buff, 2);
         my $recEnd = 6 + $entries * 12;
         if ($recEnd > $size) {
@@ -589,6 +600,11 @@ sub ProcessFont($$)
             $et->HandleTag($tagTablePtr, 'postfont', $2);
         }
         $rtnVal = 1;
+    } elsif ($buff =~ /^(wOF[F2])/) {
+        my $type = $1 eq 'wOFF' ? 'woff' : 'woff2';
+        $et->SetFileType(uc($type), "font/$type");
+        # (don't yet extract metadata from these files)
+        $rtnVal = 1;
     } else {
         $rtnVal = 0;
     }
@@ -611,11 +627,13 @@ This module is used by Image::ExifTool
 
 This module contains the routines required by Image::ExifTool to read meta
 information from various format font files.  Currently recognized font file
-types are OTF, TTF, TTC, DFONT, PFA, PFB, PFM, AFM, ACFM and AMFM.
+types are OTF, TTF, TTC, DFONT, PFA, PFB, PFM, AFM, ACFM and AMFM.  As well,
+WOFF and WOFF2 font files are identified, but metadata is not currently
+extracted from these formats.
 
 =head1 AUTHOR
 
-Copyright 2003-2018, Phil Harvey (phil at owl.phy.queensu.ca)
+Copyright 2003-2025, Phil Harvey (philharvey66 at gmail.com)
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
