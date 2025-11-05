@@ -8,4 +8,10 @@ python3 sortphotos2.py -r --silent -t --sort %Y/%Y-%m-%d
 ## lists all files, including those in subdirectories
 find /path/to/directory -type f
 
+## sudo
+sudo -i
 
+
+## ssh
+ssh 192.168.178.65 -l debru
+quit: ctrl+D
