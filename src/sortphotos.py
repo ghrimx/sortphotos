@@ -16,21 +16,34 @@ import subprocess
 import os
 import sys
 import shutil
-try:
-    import json
-except:
-    import simplejson as json
+import logging
+import logging.config
+import json
 import filecmp
+from pathlib import Path
 from datetime import datetime, timedelta
 import re
 import locale
 
 from progressbar import percent_complete
+from common import MEDIA_EXTENSIONS
 
 # Setting locale to the 'local' value
 locale.setlocale(locale.LC_ALL, '')
 
-exiftool_location = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'Image-ExifTool', 'exiftool')
+# init logging
+logger = logging.getLogger("sortphotos")
+LOG_LEVELS = {
+    "CRITICAL": logging.CRITICAL,
+    "ERROR":    logging.ERROR,
+    "WARNING":  logging.WARNING,
+    "INFO":     logging.INFO,
+    "DEBUG":    logging.DEBUG,
+}
+
+
+exiftool_dir = "Image-ExifTool-13.45"
+exiftool_location = os.path.join(os.path.dirname(os.path.realpath(__file__)), exiftool_dir, 'exiftool')
 
 
 # -------- convenience methods -------------
@@ -134,53 +147,64 @@ class ExifTool(object):
 
     def __enter__(self):
         self.process = subprocess.Popen(
-            ['perl', self.executable, "-stay_open", "True",  "-@", "-"],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+            ['perl', self.executable, '-stay_open', 'True', '-@', '-'],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  
+            bufsize=0
+        )
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.process.stdin.write(b'-stay_open\nFalse\n')
-        self.process.stdin.flush()
+        try:
+            self.process.stdin.write(b'-stay_open\nFalse\n')
+            self.process.stdin.flush()
+        except Exception:
+            pass
 
     def execute(self, *args):
         args = args + ("-execute\n",)
-        self.process.stdin.write(str.join("\n", args).encode('utf-8'))
+        self.process.stdin.write("\n".join(args).encode("utf-8"))
         self.process.stdin.flush()
+
         output = ""
         fd = self.process.stdout.fileno()
-        while not output.rstrip(' \t\n\r').endswith(self.sentinel):
-            increment = os.read(fd, 4096)
+
+        while not output.rstrip().endswith(self.sentinel):
+            chunk = os.read(fd, 4096)
             if self.verbose:
-                sys.stdout.write(increment.decode('utf-8'))
-            output += increment.decode('utf-8')
-        return output.rstrip(' \t\n\r')[:-len(self.sentinel)]
+                sys.stdout.write(chunk.decode('utf-8'))
+            if not chunk:
+                break
+            output += chunk.decode("utf-8", errors="replace")
+
+        return output.replace(self.sentinel, "").strip()
 
     def get_metadata(self, *args):
         raw = self.execute(*args)
         try:
             return json.loads(raw)
-        except ValueError as e:
-            print("ExifTool returned invalid JSON")
-            print("Arguments passed to exiftool:")
-            print(args)
-            print("Raw output from exiftool (first 2000 chars):")
-            print(raw[:2000])
-            # sys.stdout.write('No files to parse or invalid data\n')
-            # exit()
-            raise e
+        except json.JSONDecodeError:
+            raise RuntimeError(f"Invalid ExifTool output")
 
 
-# ---------------------------------------
+# Main method
 
 def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
-        copy_files=False, test=False, remove_duplicates=True, day_begins=0,
-        additional_groups_to_ignore=['File'], additional_tags_to_ignore=[],
-        use_only_groups=None, use_only_tags=None, verbose=True, keep_filename=False):
+               copy_files=False, test=False, remove_duplicates=True, day_begins=0,
+               additional_groups_to_ignore=['File'], additional_tags_to_ignore=[],
+               use_only_groups=None, use_only_tags=None, verbose=True, keep_filename=False):
+
+    logger.info("=" * 64)
+    logger.info("SORTPHOTOS - PROCESSING...")
+    logger.info("=" * 64)
 
     if not os.path.exists(src_dir):
-        raise Exception('Source directory does not exist')
+        err = 'Source directory does not exist'
+        logger.error(err)
+        raise Exception(err)
 
-    args = ['-j', '-a', '-G', '-q', '-q']
+    args = ['-j', '-a', '-G']
     if use_only_tags is not None:
         additional_groups_to_ignore = []
         additional_tags_to_ignore = []
@@ -195,68 +219,71 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
 
     if recursive:
         args += ['-r']
-    args += [src_dir]
+    # args += [src_dir]
+    
 
-    if test:
-        print("TEST MODE (no files will be moved/copied)")
+    metadata = []
+    bad_files = []
+    skipped_files = []
+    duplicate_files = []
+    unknown_date_files = []
 
-    with ExifTool(verbose=verbose) as e:
-        print('Preprocessing with ExifTool.  May take a while for a large number of files.')
-        sys.stdout.flush()
-        metadata = e.get_metadata(*args)
+    # Preprocessing with ExifTool 
+    logger.info("Preprocessing with ExifTool (file-by-file, safe mode).")
+    
+    with ExifTool(verbose=False) as e:
+        files_found = 0
+        for root, _, files in os.walk(src_dir):
+            for name in files:
+                file_path = os.path.join(root, name)
+                ext = os.path.splitext(name)[1].lower()
 
-    num_files = len(metadata)
-    print()
+                if Path(file_path).is_file():
+                    files_found += 1
+
+                if ext not in MEDIA_EXTENSIONS:
+                    skipped_files.append(file_path)
+                    continue
+
+                try:
+                    md = e.get_metadata(*args, file_path)
+                    if not md:
+                        bad_files.append(file_path)
+                        continue
+                    metadata.extend(md)
+                except Exception:
+                    bad_files.append(file_path)
 
     if test:
         test_file_dict = {}
 
+    
+    # Actions
+    cnt = 0
     moved_count = 0
     copied_count = 0
-    skipped_count = 0
-    duplicate_count = 0
-    skipped_files = []
-    duplicate_files = []
-    cnt = 0
-
     for idx, data in enumerate(metadata):
         src_file, date, keys = get_oldest_timestamp(data, additional_groups_to_ignore, additional_tags_to_ignore)
         src_file.encode('utf-8')
 
-        if verbose:
-            ending = ']'
-            if test:
-                ending = '] (TEST - no files are being moved/copied)'
-            print('[' + str(idx+1) + '/' + str(num_files) + ending)
-            print('Source: ' + src_file)
+        if test:
+            m = '(TEST - no files are being moved/copied)'
+        else:
+            m= ""
+        logger.debug(f"[{idx+1}/{len(metadata)}] {m}")
+        logger.debug('Source: ' + src_file)
 
-        # if no valid date or hidden -> send to unknown folder
+        # if no valid date or hidden -> log
         if not date or os.path.basename(src_file).startswith('.'):
-            skipped_count += 1
-            skipped_files.append(src_file)
-            if verbose:
-                reason = "No valid date" if not date else "Hidden file"
-                print(f"{reason}. Sending file to 'unknown' folder.\n")
-
-            unknown_dir = os.path.join(dest_dir, "unknown")
-            if not test and not os.path.exists(unknown_dir):
-                os.makedirs(unknown_dir)
-
-            filename = os.path.basename(src_file)
-            dest_file = os.path.join(unknown_dir, filename)
+            unknown_date_files.append(src_file)
 
             if test:
-                test_file_dict[dest_file] = src_file
-            else:
-                if copy_files:
-                    shutil.copy2(src_file, dest_file)
-                else:
-                    shutil.move(src_file, dest_file)
+                test_file_dict['nowhere'] = src_file
+
             continue
 
-        if verbose:
-            print('Date/Time: ' + str(date))
-            print('Corresponding Tags: ' + ', '.join(keys))
+        logger.debug('Date/Time: ' + str(date))
+        logger.debug('Corresponding Tags: ' + ', '.join(keys))
 
         date = check_for_early_morning_photos(date, day_begins)
         dir_structure = date.strftime(sort_format)
@@ -275,10 +302,9 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         dest_file = os.path.join(dest_file, filename)
         root, ext = os.path.splitext(dest_file)
 
-        if verbose:
-            name = 'Destination '
-            name += '(copy): ' if copy_files else '(move): '
-            print(name + dest_file)
+        name = 'Destination '
+        name += '(copy): ' if copy_files else '(move): '
+        logger.debug(name + dest_file)
 
         append = 1
         fileIsIdentical = False
@@ -290,8 +316,7 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
                     dest_compare = dest_file
                 if remove_duplicates and filecmp.cmp(src_file, dest_compare):
                     fileIsIdentical = True
-                    if verbose:
-                        print('Identical file already exists.  Duplicate will be ignored.\n')
+                    logger.debug('Identical file already exists.  Duplicate will be ignored.\n')
                     break
                 else:
                     if keep_filename:
@@ -300,13 +325,11 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
                     else:
                         dest_file = root + '_' + str(append) + ext
                     append += 1
-                    if verbose:
-                        print('Same name already exists...renaming to: ' + dest_file)
+                    logger.debug('Same name already exists...renaming to: ' + dest_file)
             else:
                 break
 
         if fileIsIdentical:
-            duplicate_count += 1
             duplicate_files.append(src_file)
             continue
 
@@ -326,40 +349,84 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
                 moved_count += 1
                 cnt += 1
 
-        if verbose:
-            print()
-        else:
-            action = "copying" if copy_files else "moving" 
-            percent_complete(step=cnt, total_steps=num_files, title=action)
+        # if verbose:
+        #     print()
+        # else:
+        #     action = "copying" if copy_files else "moving" 
+        #     percent_complete(step=cnt, total_steps=len(metadata), title=action)
 
-    total = moved_count + copied_count + skipped_count + duplicate_count
-    summary_lines = []
-    summary_lines.append("\n===== SUMMARY =====")
-    if test:
-        summary_lines.append("TEST MODE (no files actually moved/copied)\n")
-    summary_lines.append(f"Total files processed: {total}")
-    summary_lines.append(f"Moved files: {moved_count}")
-    summary_lines.append(f"Copied files: {copied_count}")
-    summary_lines.append(f"Sent to 'unknown' folder: {skipped_count}")
-    summary_lines.append(f"Duplicates ignored: {duplicate_count}")
-    summary_lines.append("===================")
+    logger.info("")
+    logger.info("=" * 64)
+    logger.info("SORTPHOTOS - RUN SUMMARY")
+    logger.info("=" * 64)
+
+    mode = "TEST (no files were moved or copied)" if test else "LIVE"
+    logger.info(f"Mode                            : {mode}")
+
+    logger.info(f"Source files detected           : {files_found}")
+    logger.info(f"Files processed (moved/copied)  : {moved_count + copied_count}")
+    logger.info("")
+
+    logger.info("Actions")
+    logger.info("-" * 63)
+    logger.info(f"Moved                 : {moved_count}")
+    logger.info(f"Copied                : {copied_count}")
+    logger.info(f"Skipped               : {len(skipped_files) + len(bad_files) + len(unknown_date_files)}")
+    logger.info(f"Duplicates ignored    : {len(duplicate_files)}")
+    logger.info("")
+
+    logger.info("Integrity")
+    logger.info("-" * 63)
+    logger.info(f"Bad / unreadable files: {len(bad_files)}")
+    logger.info(f"Unknown date files    : {len(unknown_date_files)}")
+    logger.info("")
+
+    files_affected = moved_count + copied_count
+    files_untouched = files_found - files_affected
+
+    logger.info("Result")
+    logger.info("-" * 63)
+    logger.info(f"Files affected        : {files_affected}")
+    logger.info(f"Files untouched       : {files_untouched}")
+
+    logger.info("")
+
+    # Log
+    logger.info("=" * 64)
+    logger.info("SORTPHOTOS - LOG")
+    logger.info("=" * 64)
+
+    if bad_files:
+        logger.info(f"⚠️ {len(bad_files)} bad/unreadable files:")
+        logger.info("-" * 63)
+        for bf in bad_files:
+            logger.info(bf)
+    
+        logger.info("")
 
     if skipped_files:
-        summary_lines.append("\nFiles sent to 'unknown':")
-        for f in skipped_files:
-            summary_lines.append(" - " + f)
+        logger.info(f"⚠️ {len(skipped_files)} files skipped:")
+        logger.info("-" * 63)
+        for sf in skipped_files:
+            logger.info(sf)
+    
+        logger.info("")
+
+    if unknown_date_files:
+        logger.info(f"⚠️ {len(unknown_date_files)} unknown date or hidden files:")
+        logger.info("-" * 63)
+        for uf in unknown_date_files:
+            logger.info(uf)
+    
+        logger.info("")
 
     if duplicate_files:
-        summary_lines.append("\nDuplicate files ignored:")
-        for f in duplicate_files:
-            summary_lines.append(" - " + f)
+        logger.info(f"⚠️ {len(duplicate_files)} duplicate files:")
+        logger.info("-" * 63)
+        for df in duplicate_files:
+            logger.info(df)
 
-    summary_text = "\n".join(summary_lines) + "\n"
-
-    print(summary_text)
-
-    with open("sortphotos_summary.log", "w", encoding="utf-8") as logf:
-        logf.write(summary_text)
+    logger.info("=" * 64)
 
 
 def main():
@@ -385,13 +452,38 @@ def main():
     parser.add_argument('--ignore-tags', type=str, nargs='+', default=[], help='tags to ignore')
     parser.add_argument('--use-only-groups', type=str, nargs='+', default=None, help='restrict groups')
     parser.add_argument('--use-only-tags', type=str, nargs='+', default=None, help='restrict tags')
+    parser.add_argument("--log-level",
+                        default="INFO",
+                        choices=LOG_LEVELS.keys(),
+                        help="Set logging level (default: INFO)")
+
+    parser.add_argument("--quiet",
+                        action="store_true",
+                        help="Suppress non-error output (sets log level to ERROR)")
 
     args = parser.parse_args()
 
+    if args.quiet:
+        log_level = logging.ERROR
+    else:
+        log_level = LOG_LEVELS[args.log_level]
+
+    logging.basicConfig(filename='sortphotos.log',
+                        level=log_level,
+                        format="%(asctime)s | %(levelname)-8s | %(message)s",
+                        datefmt="%Y-%m-%d %H:%M:%S"
+                        )
+
+    logger.info("*" * 64)
+    logger.info("")
+    logger.info(" " * 27 + "SORTPHOTOS")
+    logger.info("")
+    logger.info("*" * 64)
+
     sortPhotos(args.src_dir, args.dest_dir, args.sort, args.rename, args.recursive,
-        args.copy, args.test, not args.keep_duplicates, args.day_begins,
-        args.ignore_groups, args.ignore_tags, args.use_only_groups,
-        args.use_only_tags, not args.silent, args.keep_filename)
+               args.copy, args.test, not args.keep_duplicates, args.day_begins,
+               args.ignore_groups, args.ignore_tags, args.use_only_groups,
+               args.use_only_tags, not args.silent, args.keep_filename)
 
 if __name__ == '__main__':
     main()
