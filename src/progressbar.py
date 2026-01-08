@@ -1,41 +1,111 @@
 import sys
+import time
+import threading
+
 
 def percent_complete(step, total_steps, bar_width=60, title="", print_perc=True):
+    if total_steps <= 0:
+        return
 
-    # UTF-8 left blocks: 1, 1/8, 1/4, 3/8, 1/2, 5/8, 3/4, 7/8
+    # Clamp step
+    step = min(step, total_steps)
+
     utf_8s = ["█", "▏", "▎", "▍", "▌", "▋", "▊", "█"]
-    perc = 100 * float(step) / float(total_steps)
+
+    perc = (step / total_steps) * 100
     max_ticks = bar_width * 8
-    num_ticks = int(round(perc / 100 * max_ticks))
-    full_ticks = num_ticks / 8      # Number of full blocks
-    part_ticks = num_ticks % 8      # Size of partial block (array index)
-    
-    disp = bar = ""                 # Blank out variables
-    bar += utf_8s[0] * int(full_ticks)  # Add full blocks into Progress Bar
-    
-    # If part_ticks is zero, then no partial block, else append part char
+    num_ticks = int(round((perc / 100) * max_ticks))
+
+    full_ticks = num_ticks // 8
+    part_ticks = num_ticks % 8
+
+    bar = utf_8s[0] * full_ticks
     if part_ticks > 0:
         bar += utf_8s[part_ticks]
-    
-    # Pad Progress Bar with fill character
-    bar += "▒" * int((max_ticks/8 - float(num_ticks)/8.0))
-    
-    if len(title) > 0:
-        disp = title + ": "         # Optional title to progress display
-    
-    # Print progress bar in green: https://stackoverflow.com/a/21786287/6929343
-    disp += "\x1b[0;32m"            # Color Green
-    disp += bar                     # Progress bar to progress display
-    disp += "\x1b[0m"               # Color Reset
+
+    bar += "▒" * (bar_width - len(bar))
+
+    disp = ""
+    if title:
+        disp += f"{title}: "
+
+    disp += "\x1b[0;32m" + bar + "\x1b[0m"
+
     if print_perc:
-        # If requested, append percentage complete to progress display
-        if perc > 100.0:
-            perc = 100.0            # Fix "100.04 %" rounding error
-        disp += " {:6.2f}".format(perc) + " %"
-    
-    # Output to terminal repetitively over the same line using '\r'.
+        disp += f" {perc:6.2f} %"
+
+    # Write progress bar on a single line
     sys.stdout.write("\r" + disp)
-    if step == total_steps -1:
-        sys.stdout.write("\n")
     sys.stdout.flush()
+
+    # Print newline ONLY when finished
+    if step >= total_steps:
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+
+
+class Spinner:
+    def __init__(self, init_message="Starting", message="Working",
+                 delay=0.1, stream=sys.stdout):
+        self.init_message = init_message
+        self._message = message
+        self.delay = delay
+        self.stream = stream
+        self.frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        self.running = False
+        self._thread = None
+        self._enabled = stream.isatty()
+        self._lock = threading.Lock()
+
+    def __enter__(self):
+        if self._enabled:
+            # Print the static init message ONCE
+            self.stream.write(self.init_message + "\n")
+            self.stream.flush()
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.stop(success=exc_type is None)
+
+    def start(self):
+        if not self._enabled:
+            return
+        self.running = True
+        self._thread = threading.Thread(target=self._spin, daemon=True)
+        self._thread.start()
+
+    def update(self, message: str):
+        with self._lock:
+            self._message = message
+
+    @property
+    def message(self):
+        with self._lock:
+            return self._message
+
+    def stop(self, success=True):
+        if not self._enabled:
+            return
+
+        self.running = False
+        self._thread.join()
+
+        symbol = "✔" if success else "✖"
+        # Clear spinner line and print final status
+        self.stream.write(f"\r\x1b[2K{symbol} Process ended\n")
+        self.stream.flush()
+
+    def _spin(self):
+        i = 0
+        while self.running:
+            frame = self.frames[i % len(self.frames)]
+            with self._lock:
+                msg = self._message
+            # Update ONLY the spinner line
+            self.stream.write(f"\r{frame} {msg}")
+            self.stream.flush()
+            i += 1
+            time.sleep(self.delay)
+
 

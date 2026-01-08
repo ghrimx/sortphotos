@@ -10,15 +10,14 @@ Modified to include:
 - Test mode reflected in summary
 - Files without date or hidden files placed in "unknown" folder
 """
-from __future__ import print_function
-from __future__ import with_statement
-import subprocess
+
+
 import os
-import sys
+import time
 import shutil
 import logging
 import logging.config
-import json
+
 import filecmp
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -26,7 +25,7 @@ import re
 import locale
 from exiftool import ExifTool
 
-from progressbar import percent_complete
+from progressbar import percent_complete, Spinner
 from common import MEDIA_EXTENSIONS
 
 # Setting locale to the 'local' value
@@ -42,10 +41,8 @@ LOG_LEVELS = {
     "DEBUG":    logging.DEBUG,
 }
 
-
-exiftool_dir = Path("/home/usr2046/Github/Image-ExifTool-13.45")
-exiftool_location = exiftool_dir.joinpath('exiftool')
-print(exiftool_location)
+exiftool_dir = Path("/home/usr2046/Github/sortphotos/src/Image-ExifTool-13.45")
+exiftool_path = exiftool_dir.joinpath('exiftool')
 
 # -------- convenience methods -------------
 
@@ -134,59 +131,10 @@ def get_oldest_timestamp(data, additional_groups_to_ignore, additional_tags_to_i
 
 def check_for_early_morning_photos(date, day_begins):
     if date.hour < day_begins:
-        print('moving this photo to the previous day for classification purposes (day_begins=' + str(day_begins) + ')')
+        logger.debug('moving this photo to the previous day for classification purposes (day_begins=' + str(day_begins) + ')')
         date = date - timedelta(hours=date.hour+1)
     return date
 
-
-class ExifTool(object):
-    sentinel = "{ready}"
-
-    def __init__(self, executable=exiftool_location, verbose=False):
-        self.executable = executable
-        self.verbose = verbose
-
-    def __enter__(self):
-        self.process = subprocess.Popen(
-            ['perl', self.executable, '-stay_open', 'True', '-@', '-'],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,  
-            bufsize=0
-        )
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        try:
-            self.process.stdin.write(b'-stay_open\nFalse\n')
-            self.process.stdin.flush()
-        except Exception:
-            pass
-
-    def execute(self, *args):
-        args = args + ("-execute\n",)
-        self.process.stdin.write("\n".join(args).encode("utf-8"))
-        self.process.stdin.flush()
-
-        output = ""
-        fd = self.process.stdout.fileno()
-
-        while not output.rstrip().endswith(self.sentinel):
-            chunk = os.read(fd, 4096)
-            if self.verbose:
-                sys.stdout.write(chunk.decode('utf-8'))
-            if not chunk:
-                break
-            output += chunk.decode("utf-8", errors="replace")
-
-        return output.replace(self.sentinel, "").strip()
-
-    def get_metadata(self, *args):
-        raw = self.execute(*args)
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            raise RuntimeError(f"Invalid ExifTool output")
 
 
 # Main method
@@ -229,31 +177,38 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
     duplicate_files = []
     unknown_date_files = []
 
-    # Preprocessing with ExifTool 
-    logger.info("Preprocessing with ExifTool (file-by-file, safe mode).")
-    
-    with ExifTool(verbose=False) as e:
-        files_found = 0
-        for root, _, files in os.walk(src_dir):
-            for name in files:
-                file_path = os.path.join(root, name)
-                ext = os.path.splitext(name)[1].lower()
+    # Preprocessing with ExifTool
+    with Spinner("Reading EXIF metadata with ExifTool") as spinner:
+        with ExifTool(exiftool_path) as exiftool:
+            logger.info("Preprocessing with ExifTool (file-by-file, safe mode).")
+            files_found = 0
+            for root, _, files in os.walk(src_dir):
+                for name in files:
+                    file_path = os.path.join(root, name)
+                    ext = os.path.splitext(name)[1].lower()
 
-                if Path(file_path).is_file():
-                    files_found += 1
+                    if Path(file_path).is_file():
+                        files_found += 1
+                        spinner.update(f"Processed files: {files_found}")
 
-                if ext not in MEDIA_EXTENSIONS:
-                    skipped_files.append(file_path)
-                    continue
-
-                try:
-                    md = e.get_metadata(*args, file_path)
-                    if not md:
-                        bad_files.append(file_path)
+                    if ext not in MEDIA_EXTENSIONS:
+                        skipped_files.append(file_path)
+                        logger.debug(f'⚠️ Invalid file extension. file:{file_path}')
                         continue
-                    metadata.extend(md)
-                except Exception:
-                    bad_files.append(file_path)
+
+                    try:
+                        md = exiftool.get_metadata(*args, file_path)
+                        if not md:
+                            bad_files.append(file_path)
+                            logger.error(f'⚠️ Fail to get metadata. file:{file_path}')
+                            continue
+                        metadata.extend(md)
+                    except Exception:
+                        bad_files.append(file_path)
+                        logger.error(f'⚠️ Fail to get metadata. file:{file_path}')
+                    
+                else:
+                    spinner.update("")
 
     if test:
         test_file_dict = {}
@@ -261,8 +216,6 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
     
     # Actions
     cnt = 0
-    moved_count = 0
-    copied_count = 0
     for idx, data in enumerate(metadata):
         src_file, date, keys = get_oldest_timestamp(data, additional_groups_to_ignore, additional_tags_to_ignore)
         src_file.encode('utf-8')
@@ -317,7 +270,7 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
                     dest_compare = dest_file
                 if remove_duplicates and filecmp.cmp(src_file, dest_compare):
                     fileIsIdentical = True
-                    logger.debug('Identical file already exists.  Duplicate will be ignored.\n')
+                    logger.debug('⚠️ Identical file already exists.  Duplicate will be ignored.')
                     break
                 else:
                     if keep_filename:
@@ -326,7 +279,7 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
                     else:
                         dest_file = root + '_' + str(append) + ext
                     append += 1
-                    logger.debug('Same name already exists...renaming to: ' + dest_file)
+                    logger.debug('⚠️ Same name already exists...renaming to: ' + dest_file)
             else:
                 break
 
@@ -336,25 +289,19 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
 
         if test:
             test_file_dict[dest_file] = src_file
-            if copy_files:
-                copied_count += 1
-            else:
-                moved_count += 1
+            cnt += 1
+
         else:
             if copy_files:
                 shutil.copy2(src_file, dest_file)
-                copied_count += 1
                 cnt += 1
             else:
                 shutil.move(src_file, dest_file)
-                moved_count += 1
                 cnt += 1
 
-        # if verbose:
-        #     print()
-        # else:
-        #     action = "copying" if copy_files else "moving" 
-        #     percent_complete(step=cnt, total_steps=len(metadata), title=action)
+        action = "copy" if copy_files else "move" 
+        if not test:
+            percent_complete(step=cnt, total_steps=len(metadata) - 1, title="copying" if copy_files else "moving")
 
     logger.info("")
     logger.info("=" * 64)
@@ -363,26 +310,24 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
 
     mode = "TEST (no files were moved or copied)" if test else "LIVE"
     logger.info(f"Mode                            : {mode}")
-
+    logger.info(f"Action                          : {action}")
     logger.info(f"Source files detected           : {files_found}")
-    logger.info(f"Files processed (moved/copied)  : {moved_count + copied_count}")
     logger.info("")
 
     logger.info("Actions")
     logger.info("-" * 63)
-    logger.info(f"Moved                 : {moved_count}")
-    logger.info(f"Copied                : {copied_count}")
+    logger.info(f"Moved/Copied          : {cnt}")
     logger.info(f"Skipped               : {len(skipped_files) + len(bad_files) + len(unknown_date_files)}")
     logger.info(f"Duplicates ignored    : {len(duplicate_files)}")
     logger.info("")
 
     logger.info("Integrity")
     logger.info("-" * 63)
-    logger.info(f"Bad / unreadable files: {len(bad_files)}")
-    logger.info(f"Unknown date files    : {len(unknown_date_files)}")
+    logger.info(f"Bad / unreadable files      : {len(bad_files)}")
+    logger.info(f"Unknown date/ hidden files  : {len(unknown_date_files)}")
     logger.info("")
 
-    files_affected = moved_count + copied_count
+    files_affected = cnt
     files_untouched = files_found - files_affected
 
     logger.info("Result")
@@ -398,7 +343,7 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
     logger.info("=" * 64)
 
     if bad_files:
-        logger.info(f"⚠️ {len(bad_files)} bad/unreadable files:")
+        logger.info(f"{len(bad_files)} bad/unreadable files:")
         logger.info("-" * 63)
         for bf in bad_files:
             logger.info(bf)
@@ -406,7 +351,7 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         logger.info("")
 
     if skipped_files:
-        logger.info(f"⚠️ {len(skipped_files)} files skipped:")
+        logger.info(f"{len(skipped_files)} files skipped:")
         logger.info("-" * 63)
         for sf in skipped_files:
             logger.info(sf)
@@ -414,7 +359,7 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         logger.info("")
 
     if unknown_date_files:
-        logger.info(f"⚠️ {len(unknown_date_files)} unknown date or hidden files:")
+        logger.info(f"{len(unknown_date_files)} unknown date or hidden files:")
         logger.info("-" * 63)
         for uf in unknown_date_files:
             logger.info(uf)
@@ -422,7 +367,7 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         logger.info("")
 
     if duplicate_files:
-        logger.info(f"⚠️ {len(duplicate_files)} duplicate files:")
+        logger.info(f"{len(duplicate_files)} duplicate files:")
         logger.info("-" * 63)
         for df in duplicate_files:
             logger.info(df)
