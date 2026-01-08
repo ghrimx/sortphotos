@@ -39,5 +39,6 @@ nosetests.xml
 !src/Image-ExifTool/lib
 .log
 my_command.md
-src/Image-ExifTool
+src/Image-ExifTool*
 .bkp
+Image-ExifTool*

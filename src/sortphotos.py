@@ -24,6 +24,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 import re
 import locale
+from exiftool import ExifTool
 
 from progressbar import percent_complete
 from common import MEDIA_EXTENSIONS
@@ -42,9 +43,9 @@ LOG_LEVELS = {
 }
 
 
-exiftool_dir = "Image-ExifTool-13.45"
-exiftool_location = os.path.join(os.path.dirname(os.path.realpath(__file__)), exiftool_dir, 'exiftool')
-
+exiftool_dir = Path("/home/usr2046/Github/Image-ExifTool-13.45")
+exiftool_location = exiftool_dir.joinpath('exiftool')
+print(exiftool_location)
 
 # -------- convenience methods -------------
 
