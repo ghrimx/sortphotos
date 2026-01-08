@@ -14,6 +14,7 @@ Modified to include:
 
 import os
 import shutil
+import time
 import logging
 import logging.config
 
@@ -182,6 +183,10 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
     with Spinner(f"{mode} - Reading EXIF metadata with ExifTool") as spinner:
         with ExifTool(exiftool_path) as exiftool:
             logger.info("Preprocessing with ExifTool (file-by-file, safe mode).")
+
+            if not test:
+                time.sleep(2) # for urgent cancel
+
             files_found = 0
             for root, _, files in os.walk(src_dir):
                 for name in files:
@@ -214,7 +219,9 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
     if test:
         test_file_dict = {}
 
-    
+    if not test:
+        time.sleep(2) # for urgent cancel
+
     # Actions
     cnt = 0
     for idx, data in enumerate(metadata):
