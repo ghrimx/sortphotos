@@ -13,7 +13,6 @@ Modified to include:
 
 
 import os
-import time
 import shutil
 import logging
 import logging.config
@@ -148,6 +147,8 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
     logger.info("SORTPHOTOS - PROCESSING...")
     logger.info("=" * 64)
 
+    mode = "DRY RUN" if test else "LIVE"
+
     if not os.path.exists(src_dir):
         err = 'Source directory does not exist'
         logger.error(err)
@@ -178,7 +179,7 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
     unknown_date_files = []
 
     # Preprocessing with ExifTool
-    with Spinner("Reading EXIF metadata with ExifTool") as spinner:
+    with Spinner(f"{mode} - Reading EXIF metadata with ExifTool") as spinner:
         with ExifTool(exiftool_path) as exiftool:
             logger.info("Preprocessing with ExifTool (file-by-file, safe mode).")
             files_found = 0
@@ -221,7 +222,7 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         src_file.encode('utf-8')
 
         if test:
-            m = '(TEST - no files are being moved/copied)'
+            m = '(DRY RUN - no files are being moved/copied)'
         else:
             m= ""
         logger.debug(f"[{idx+1}/{len(metadata)}] {m}")
@@ -308,10 +309,11 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
     logger.info("SORTPHOTOS - RUN SUMMARY")
     logger.info("=" * 64)
 
-    mode = "TEST (no files were moved or copied)" if test else "LIVE"
     logger.info(f"Mode                            : {mode}")
     logger.info(f"Action                          : {action}")
     logger.info(f"Source files detected           : {files_found}")
+    logger.info(f"Source                          : {src_dir}")
+    logger.info(f"Destination                     : {dest_dir}")
     logger.info("")
 
     logger.info("Actions")

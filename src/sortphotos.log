@@ -1330,3 +1330,116 @@
 2026-01-08 15:20:52 | INFO     | /home/usr2046/Images/MyCollection/.mountain-3_copy (Copie).jpg
 2026-01-08 15:20:52 | INFO     | 
 2026-01-08 15:20:52 | INFO     | ================================================================
+2026-01-08 15:35:34 | INFO     | ****************************************************************
+2026-01-08 15:35:34 | INFO     | 
+2026-01-08 15:35:34 | INFO     |                            SORTPHOTOS
+2026-01-08 15:35:34 | INFO     | 
+2026-01-08 15:35:34 | INFO     | ****************************************************************
+2026-01-08 15:45:09 | INFO     | ****************************************************************
+2026-01-08 15:45:09 | INFO     | 
+2026-01-08 15:45:09 | INFO     |                            SORTPHOTOS
+2026-01-08 15:45:09 | INFO     | 
+2026-01-08 15:45:09 | INFO     | ****************************************************************
+2026-01-08 15:45:09 | INFO     | ================================================================
+2026-01-08 15:45:09 | INFO     | SORTPHOTOS - PROCESSING...
+2026-01-08 15:45:09 | INFO     | ================================================================
+2026-01-08 15:45:09 | ERROR    | Source directory does not exist
+2026-01-08 15:45:22 | INFO     | ****************************************************************
+2026-01-08 15:45:22 | INFO     | 
+2026-01-08 15:45:22 | INFO     |                            SORTPHOTOS
+2026-01-08 15:45:22 | INFO     | 
+2026-01-08 15:45:22 | INFO     | ****************************************************************
+2026-01-08 15:45:22 | INFO     | ================================================================
+2026-01-08 15:45:22 | INFO     | SORTPHOTOS - PROCESSING...
+2026-01-08 15:45:22 | INFO     | ================================================================
+2026-01-08 15:45:23 | INFO     | Preprocessing with ExifTool (file-by-file, safe mode).
+2026-01-08 15:45:23 | DEBUG    | ⚠️ Invalid file extension. file:/home/usr2046/Images/thumbnails-digikam.db
+2026-01-08 15:45:23 | DEBUG    | ⚠️ Invalid file extension. file:/home/usr2046/Images/recognition.db
+2026-01-08 15:45:23 | DEBUG    | ⚠️ Invalid file extension. file:/home/usr2046/Images/similarity.db
+2026-01-08 15:45:23 | DEBUG    | ⚠️ Invalid file extension. file:/home/usr2046/Images/digikam4.db
+2026-01-08 15:45:23 | DEBUG    | ⚠️ Invalid file extension. file:/home/usr2046/Images/photo_migration/migration.sh
+2026-01-08 15:45:23 | DEBUG    | ⚠️ Invalid file extension. file:/home/usr2046/Images/photo_migration/run2.txt
+2026-01-08 15:45:23 | DEBUG    | ⚠️ Invalid file extension. file:/home/usr2046/Images/photo_migration/run1.txt
+2026-01-08 15:45:23 | DEBUG    | ⚠️ Invalid file extension. file:/home/usr2046/Images/photo_migration/sortphotos.log
+2026-01-08 15:45:23 | DEBUG    | ⚠️ Invalid file extension. file:/home/usr2046/Images/.dtrash/digikam.uuid
+2026-01-08 15:45:23 | DEBUG    | ⚠️ Invalid file extension. file:/home/usr2046/Images/.dtrash/info/mountain-3-48602600.dtrashinfo
+2026-01-08 15:45:23 | DEBUG    | ⚠️ Invalid file extension. file:/home/usr2046/Images/.dtrash/info/photo-1575936123452-b67c3203c357-d8f5e5f0.dtrashinfo
+2026-01-08 15:45:23 | DEBUG    | [1/7] (DRY RUN - no files are being moved/copied)
+2026-01-08 15:45:23 | DEBUG    | Source: /home/usr2046/Images/2025/2025_08_23/mountain-3_copy.jpg
+2026-01-08 15:45:23 | DEBUG    | Date/Time: 2025-08-23 19:24:19
+2026-01-08 15:45:23 | DEBUG    | Corresponding Tags: File:FileModifyDate
+2026-01-08 15:45:23 | DEBUG    | Destination (copy): /home/usr2046/Images/2025/2025_08_23/mountain-3_copy.jpg
+2026-01-08 15:45:23 | DEBUG    | [2/7] (DRY RUN - no files are being moved/copied)
+2026-01-08 15:45:23 | DEBUG    | Source: /home/usr2046/Images/2025/2025_08_23/photo-1575936123452-b67c3203c357.jpeg
+2026-01-08 15:45:23 | DEBUG    | Date/Time: 2025-08-23 19:24:01
+2026-01-08 15:45:23 | DEBUG    | Corresponding Tags: File:FileModifyDate
+2026-01-08 15:45:23 | DEBUG    | Destination (copy): /home/usr2046/Images/2025/2025_08_23/photo-1575936123452-b67c3203c357.jpeg
+2026-01-08 15:45:23 | DEBUG    | [3/7] (DRY RUN - no files are being moved/copied)
+2026-01-08 15:45:23 | DEBUG    | Source: /home/usr2046/Images/2025/2025_08_23/mountain-3.jpg
+2026-01-08 15:45:23 | DEBUG    | Date/Time: 2025-08-23 19:24:19
+2026-01-08 15:45:23 | DEBUG    | Corresponding Tags: File:FileModifyDate
+2026-01-08 15:45:23 | DEBUG    | Destination (copy): /home/usr2046/Images/2025/2025_08_23/mountain-3.jpg
+2026-01-08 15:45:23 | DEBUG    | [4/7] (DRY RUN - no files are being moved/copied)
+2026-01-08 15:45:23 | DEBUG    | Source: /home/usr2046/Images/2025/2025_08_23/MainBefore.webp
+2026-01-08 15:45:23 | DEBUG    | Date/Time: 2025-08-23 19:23:48
+2026-01-08 15:45:23 | DEBUG    | Corresponding Tags: File:FileModifyDate
+2026-01-08 15:45:23 | DEBUG    | Destination (copy): /home/usr2046/Images/2025/2025_08_23/MainBefore.webp
+2026-01-08 15:45:23 | DEBUG    | [5/7] (DRY RUN - no files are being moved/copied)
+2026-01-08 15:45:23 | DEBUG    | Source: /home/usr2046/Images/2024/2024_05_06/20240506_171624.jpg
+2026-01-08 15:45:23 | DEBUG    | Date/Time: 2024-05-06 15:16:24
+2026-01-08 15:45:23 | DEBUG    | Corresponding Tags: MakerNotes:TimeStamp, Composite:SubSecDateTimeOriginal, Composite:SubSecModifyDate
+2026-01-08 15:45:23 | DEBUG    | Destination (copy): /home/usr2046/Images/2024/2024_05_06/20240506_171624.jpg
+2026-01-08 15:45:23 | DEBUG    | [6/7] (DRY RUN - no files are being moved/copied)
+2026-01-08 15:45:23 | DEBUG    | Source: /home/usr2046/Images/.dtrash/files/photo-1575936123452-b67c3203c357-d8f5e5f0.jpeg
+2026-01-08 15:45:23 | DEBUG    | Date/Time: 2025-08-23 19:24:01
+2026-01-08 15:45:23 | DEBUG    | Corresponding Tags: File:FileModifyDate
+2026-01-08 15:45:23 | DEBUG    | Destination (copy): /home/usr2046/Images/2025/2025_08_23/photo-1575936123452-b67c3203c357-d8f5e5f0.jpeg
+2026-01-08 15:45:23 | DEBUG    | [7/7] (DRY RUN - no files are being moved/copied)
+2026-01-08 15:45:23 | DEBUG    | Source: /home/usr2046/Images/.dtrash/files/mountain-3-48602600.jpg
+2026-01-08 15:45:23 | DEBUG    | Date/Time: 2025-08-23 19:24:19
+2026-01-08 15:45:23 | DEBUG    | Corresponding Tags: File:FileModifyDate
+2026-01-08 15:45:23 | DEBUG    | Destination (copy): /home/usr2046/Images/2025/2025_08_23/mountain-3-48602600.jpg
+2026-01-08 15:45:23 | INFO     | 
+2026-01-08 15:45:23 | INFO     | ================================================================
+2026-01-08 15:45:23 | INFO     | SORTPHOTOS - RUN SUMMARY
+2026-01-08 15:45:23 | INFO     | ================================================================
+2026-01-08 15:45:23 | INFO     | Mode                            : DRY RUN
+2026-01-08 15:45:23 | INFO     | Action                          : copy
+2026-01-08 15:45:23 | INFO     | Source files detected           : 18
+2026-01-08 15:45:23 | INFO     | Source                          : /home/usr2046/Images
+2026-01-08 15:45:23 | INFO     | Destination                     : /home/usr2046/Images
+2026-01-08 15:45:23 | INFO     | 
+2026-01-08 15:45:23 | INFO     | Actions
+2026-01-08 15:45:23 | INFO     | ---------------------------------------------------------------
+2026-01-08 15:45:23 | INFO     | Moved/Copied          : 7
+2026-01-08 15:45:23 | INFO     | Skipped               : 11
+2026-01-08 15:45:23 | INFO     | Duplicates ignored    : 0
+2026-01-08 15:45:23 | INFO     | 
+2026-01-08 15:45:23 | INFO     | Integrity
+2026-01-08 15:45:23 | INFO     | ---------------------------------------------------------------
+2026-01-08 15:45:23 | INFO     | Bad / unreadable files      : 0
+2026-01-08 15:45:23 | INFO     | Unknown date/ hidden files  : 0
+2026-01-08 15:45:23 | INFO     | 
+2026-01-08 15:45:23 | INFO     | Result
+2026-01-08 15:45:23 | INFO     | ---------------------------------------------------------------
+2026-01-08 15:45:23 | INFO     | Files affected        : 7
+2026-01-08 15:45:23 | INFO     | Files untouched       : 11
+2026-01-08 15:45:23 | INFO     | 
+2026-01-08 15:45:23 | INFO     | ================================================================
+2026-01-08 15:45:23 | INFO     | SORTPHOTOS - LOG
+2026-01-08 15:45:23 | INFO     | ================================================================
+2026-01-08 15:45:23 | INFO     | 11 files skipped:
+2026-01-08 15:45:23 | INFO     | ---------------------------------------------------------------
+2026-01-08 15:45:23 | INFO     | /home/usr2046/Images/thumbnails-digikam.db
+2026-01-08 15:45:23 | INFO     | /home/usr2046/Images/recognition.db
+2026-01-08 15:45:23 | INFO     | /home/usr2046/Images/similarity.db
+2026-01-08 15:45:23 | INFO     | /home/usr2046/Images/digikam4.db
+2026-01-08 15:45:23 | INFO     | /home/usr2046/Images/photo_migration/migration.sh
+2026-01-08 15:45:23 | INFO     | /home/usr2046/Images/photo_migration/run2.txt
+2026-01-08 15:45:23 | INFO     | /home/usr2046/Images/photo_migration/run1.txt
+2026-01-08 15:45:23 | INFO     | /home/usr2046/Images/photo_migration/sortphotos.log
+2026-01-08 15:45:23 | INFO     | /home/usr2046/Images/.dtrash/digikam.uuid
+2026-01-08 15:45:23 | INFO     | /home/usr2046/Images/.dtrash/info/mountain-3-48602600.dtrashinfo
+2026-01-08 15:45:23 | INFO     | /home/usr2046/Images/.dtrash/info/photo-1575936123452-b67c3203c357-d8f5e5f0.dtrashinfo
+2026-01-08 15:45:23 | INFO     | 
+2026-01-08 15:45:23 | INFO     | ================================================================
