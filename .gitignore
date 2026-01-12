@@ -37,8 +37,8 @@ nosetests.xml
 .pydevproject
 
 !src/Image-ExifTool/lib
-.log
+*.log
 my_command.md
 src/Image-ExifTool*
-.bkp
+*.bkp
 Image-ExifTool*
