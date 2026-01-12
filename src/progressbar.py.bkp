@@ -1,0 +1,99 @@
+import sys
+import time
+import threading
+
+
+def percent_complete(step, total_steps, bar_width=60, title="", print_perc=True):
+    if total_steps <= 0:
+        return
+
+    step = min(step, total_steps)
+
+    utf_8s = ["█", "▏", "▎", "▍", "▌", "▋", "▊", "█"]
+    perc = (step / total_steps) * 100
+    max_ticks = bar_width * 8
+    num_ticks = int(round((perc / 100) * max_ticks))
+
+    full_ticks = num_ticks // 8
+    part_ticks = num_ticks % 8
+
+    bar = utf_8s[0] * full_ticks
+    if part_ticks:
+        bar += utf_8s[part_ticks]
+
+    bar += "▒" * (bar_width - len(bar))
+
+    disp = f"{title + ': ' if title else ''}\x1b[0;32m{bar}\x1b[0m"
+    if print_perc:
+        disp += f" {perc:6.2f} %"
+
+    sys.stdout.write("\r" + disp)
+    sys.stdout.flush()
+
+
+
+class Spinner:
+    def __init__(self, init_message="Starting", message="Working",
+                 delay=0.1, stream=sys.stdout):
+        self.init_message = init_message
+        self._message = message
+        self.delay = delay
+        self.stream = stream
+        self.frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        self.running = False
+        self._thread = None
+        self._enabled = stream.isatty()
+        self._lock = threading.Lock()
+
+    def __enter__(self):
+        if self._enabled:
+            # Print the static init message ONCE
+            self.stream.write(self.init_message + "\n")
+            self.stream.flush()
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.stop(success=exc_type is None)
+
+    def start(self):
+        if not self._enabled:
+            return
+        self.running = True
+        self._thread = threading.Thread(target=self._spin, daemon=True)
+        self._thread.start()
+
+    def update(self, message: str):
+        with self._lock:
+            self._message = message
+
+    @property
+    def message(self):
+        with self._lock:
+            return self._message
+
+    def stop(self, success=True):
+        if not self._enabled:
+            return
+
+        self.running = False
+        self._thread.join()
+
+        symbol = "✔" if success else "✖"
+        # Clear spinner line and print final status
+        self.stream.write(f"\r\x1b[2K{symbol} Process ended\n")
+        self.stream.flush()
+
+    def _spin(self):
+        i = 0
+        while self.running:
+            frame = self.frames[i % len(self.frames)]
+            with self._lock:
+                msg = self._message
+            # Update ONLY the spinner line
+            self.stream.write(f"\r{frame} {msg}")
+            self.stream.flush()
+            i += 1
+            time.sleep(self.delay)
+
+

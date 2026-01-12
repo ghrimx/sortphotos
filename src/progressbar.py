@@ -1,65 +1,88 @@
 import sys
-import time
+import shutil
 import threading
+import time
 
 
-def percent_complete(step, total_steps, bar_width=60, title="", print_perc=True):
-    if total_steps <= 0:
-        return
+class ProgressBar:
+    def __init__(
+        self,
+        total,
+        title="",
+        bar_width=40,
+        show_percent=True,
+        stream=sys.stdout,
+        color="\x1b[0;32m",  # green
+    ):
+        self.total = max(total, 1)
+        self.title = title
+        self.bar_width = bar_width
+        self.show_percent = show_percent
+        self.stream = stream
+        self.color = color
+        self.enabled = stream.isatty()
+        self._last_step = -1
 
-    # Clamp step
-    step = min(step, total_steps)
+        self._blocks = ["█", "▏", "▎", "▍", "▌", "▋", "▊", "█"]
 
-    utf_8s = ["█", "▏", "▎", "▍", "▌", "▋", "▊", "█"]
+    def update(self, step):
+        if not self.enabled:
+            return
 
-    perc = (step / total_steps) * 100
-    max_ticks = bar_width * 8
-    num_ticks = int(round((perc / 100) * max_ticks))
+        step = min(step, self.total)
+        if step == self._last_step:
+            return
 
-    full_ticks = num_ticks // 8
-    part_ticks = num_ticks % 8
+        self._last_step = step
 
-    bar = utf_8s[0] * full_ticks
-    if part_ticks > 0:
-        bar += utf_8s[part_ticks]
+        perc = step / self.total
+        max_ticks = self.bar_width * 8
+        num_ticks = int(round(perc * max_ticks))
 
-    bar += "▒" * (bar_width - len(bar))
+        full = num_ticks // 8
+        part = num_ticks % 8
 
-    disp = ""
-    if title:
-        disp += f"{title}: "
+        bar = self._blocks[0] * full
+        if part:
+            bar += self._blocks[part]
+        bar += "▒" * (self.bar_width - len(bar))
 
-    disp += "\x1b[0;32m" + bar + "\x1b[0m"
+        prefix = f"{self.title}: " if self.title else ""
+        disp = f"{prefix}{self.color}{bar}\x1b[0m"
 
-    if print_perc:
-        disp += f" {perc:6.2f} %"
+        if self.show_percent:
+            disp += f" {perc * 100:6.2f} %"
 
-    # Write progress bar on a single line
-    sys.stdout.write("\r" + disp)
-    sys.stdout.flush()
+        self.stream.write(f"\r\x1b[2K{disp}")
+        self.stream.flush()
 
-    # Print newline ONLY when finished
-    if step >= total_steps:
-        sys.stdout.write("\n")
-        sys.stdout.flush()
+    def finish(self):
+        if not self.enabled:
+            return
+        self.stream.write("\n")
+        self.stream.flush()
 
 
 class Spinner:
-    def __init__(self, init_message="Starting", message="Working",
-                 delay=0.1, stream=sys.stdout):
+    def __init__(
+        self,
+        init_message="",
+        message="Working",
+        delay=0.1,
+        stream=sys.stdout,
+    ):
         self.init_message = init_message
         self._message = message
         self.delay = delay
         self.stream = stream
         self.frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
         self.running = False
-        self._thread = None
-        self._enabled = stream.isatty()
+        self.enabled = stream.isatty()
         self._lock = threading.Lock()
+        self._thread = None
 
     def __enter__(self):
-        if self._enabled:
-            # Print the static init message ONCE
+        if self.enabled and self.init_message:
             self.stream.write(self.init_message + "\n")
             self.stream.flush()
         self.start()
@@ -69,31 +92,25 @@ class Spinner:
         self.stop(success=exc_type is None)
 
     def start(self):
-        if not self._enabled:
+        if not self.enabled:
             return
         self.running = True
         self._thread = threading.Thread(target=self._spin, daemon=True)
         self._thread.start()
 
-    def update(self, message: str):
+    def update(self, message):
         with self._lock:
             self._message = message
 
-    @property
-    def message(self):
-        with self._lock:
-            return self._message
-
     def stop(self, success=True):
-        if not self._enabled:
+        if not self.enabled:
             return
 
         self.running = False
         self._thread.join()
 
         symbol = "✔" if success else "✖"
-        # Clear spinner line and print final status
-        self.stream.write(f"\r\x1b[2K{symbol} Process ended\n")
+        self.stream.write(f"\r\x1b[2K{symbol} {self._message}\n")
         self.stream.flush()
 
     def _spin(self):
@@ -102,10 +119,7 @@ class Spinner:
             frame = self.frames[i % len(self.frames)]
             with self._lock:
                 msg = self._message
-            # Update ONLY the spinner line
-            self.stream.write(f"\r{frame} {msg}")
+            self.stream.write(f"\r\x1b[2K{frame} {msg}")
             self.stream.flush()
-            i += 1
             time.sleep(self.delay)
-
-
+            i += 1

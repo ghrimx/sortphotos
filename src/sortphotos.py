@@ -1,22 +1,13 @@
 #!/usr/bin/env python
 # encoding: utf-8
-"""
-sortphotos.py
 
-Modified to include:
-- Summary of moved/copied/skipped/duplicates
-- Skipped + duplicate files listed
-- Summary written to log file (overwrite each run)
-- Test mode reflected in summary
-- Files without date or hidden files placed in "unknown" folder
-"""
-
-
+import sys
 import os
 import shutil
 import time
 import logging
 import logging.config
+from uuid import uuid1
 
 import filecmp
 from pathlib import Path
@@ -25,7 +16,7 @@ import re
 import locale
 from exiftool import ExifTool
 
-from progressbar import percent_complete, Spinner
+from progressbar import ProgressBar, Spinner
 from common import MEDIA_EXTENSIONS
 
 # Setting locale to the 'local' value
@@ -136,6 +127,65 @@ def check_for_early_morning_photos(date, day_begins):
     return date
 
 
+_hash_cache = {}
+
+import hashlib
+
+FAST_HASH_SIZE = 65536  # 64 KB
+
+def fast_hash(path, chunk_size=FAST_HASH_SIZE):
+    h = hashlib.blake2b(digest_size=16)
+    size = os.path.getsize(path)
+
+    with open(path, "rb") as f:
+        h.update(f.read(chunk_size))
+        if size > chunk_size:
+            f.seek(-chunk_size, os.SEEK_END)
+            h.update(f.read(chunk_size))
+
+    return h.digest()
+
+def full_hash(path, block_size=1024 * 1024):
+    h = hashlib.blake2b(digest_size=32)
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(block_size), b""):
+            h.update(chunk)
+    return h.digest()
+
+def is_duplicate(src, dest):
+    if os.path.getsize(src) != os.path.getsize(dest):
+        return False
+
+    key = (src, dest)
+
+    if key not in _hash_cache:
+        _hash_cache[key] = fast_hash(src), fast_hash(dest)
+
+    if _hash_cache[key][0] != _hash_cache[key][1]:
+        return False
+
+    # Only now do the expensive check
+    return full_hash(src) == full_hash(dest)
+
+def is_hidden(path):
+    p = Path(path)
+
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            attrs = ctypes.windll.kernel32.GetFileAttributesW(str(p))
+            return bool(attrs & 0x2)  # FILE_ATTRIBUTE_HIDDEN
+        except Exception:
+            return False
+
+    return any(part.startswith('.') for part in p.parts)
+
+def ask_continue(prompt="Continue? [y/N]: "):
+    try:
+        resp = input(prompt).strip().lower()
+    except EOFError:
+        return False
+    return resp in ("y", "yes")
 
 # Main method
 
@@ -148,7 +198,12 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
     logger.info("SORTPHOTOS - PROCESSING...")
     logger.info("=" * 64)
 
-    mode = "DRY RUN" if test else "LIVE"
+    run_id = uuid1().time
+    sys.stdout.write(f'Run ID: {run_id}\n')
+    logger.info(f'Run ID: {run_id}')
+
+    mode = "DRY RUN" if test else "🔥 LIVE 🔥"
+    action = "copy" if copy_files else "move" 
 
     if not os.path.exists(src_dir):
         err = 'Source directory does not exist'
@@ -211,16 +266,16 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
                         metadata.extend(md)
                     except Exception:
                         bad_files.append(file_path)
-                        logger.error(f'⚠️ Fail to get metadata. file:{file_path}')
-                    
-                else:
-                    spinner.update("")
+                        logger.error(f'⚠️ Fail to get metadata. file:{file_path}') 
 
-    if test:
-        test_file_dict = {}
 
-    if not test:
-        time.sleep(2) # for urgent cancel
+    if not ask_continue():
+        logger.info("Aborted by user")
+        logger.info("=" * 64)
+        sys.exit(1)
+
+    title = "copying" if copy_files else "moving"
+    progress = ProgressBar(len(metadata) - 1, title=f"Sorting photos ({title})")
 
     # Actions
     cnt = 0
@@ -236,12 +291,8 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         logger.debug('Source: ' + src_file)
 
         # if no valid date or hidden -> log
-        if not date or os.path.basename(src_file).startswith('.'):
+        if not date or is_hidden(src_file):
             unknown_date_files.append(src_file)
-
-            if test:
-                test_file_dict['nowhere'] = src_file
-
             continue
 
         logger.debug('Date/Time: ' + str(date))
@@ -268,48 +319,48 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         name += '(copy): ' if copy_files else '(move): '
         logger.debug(name + dest_file)
 
+        # Duplicate detection
         append = 1
-        fileIsIdentical = False
-        while True:
-            if (not test and os.path.isfile(dest_file)) or (test and dest_file in (test_file_dict.keys() if test else [])):
-                if test:
-                    dest_compare = test_file_dict[dest_file]
-                else:
-                    dest_compare = dest_file
-                if remove_duplicates and filecmp.cmp(src_file, dest_compare):
-                    fileIsIdentical = True
-                    logger.debug('⚠️ Identical file already exists.  Duplicate will be ignored.')
-                    break
-                else:
-                    if keep_filename:
-                        orig_filename = os.path.splitext(os.path.basename(src_file))[0]
-                        dest_file = root + '_' + orig_filename + '_' + str(append) + ext
-                    else:
-                        dest_file = root + '_' + str(append) + ext
-                    append += 1
-                    logger.debug('⚠️ Same name already exists...renaming to: ' + dest_file)
-            else:
+        file_is_identical = False
+        while os.path.isfile(dest_file):
+
+            logger.debug(f'src_file: {src_file}')
+            logger.debug(f'dest_file: {dest_file}')
+
+            if remove_duplicates and is_duplicate(src_file, dest_file):
+                file_is_identical = True
+                logger.debug("⚠️ Identical file already exists. Duplicate will be ignored.")
                 break
 
-        if fileIsIdentical:
+            # Filename collision -> generate new name
+            if keep_filename:
+                orig = os.path.splitext(os.path.basename(src_file))[0]
+                dest_file = f"{root}_{orig}_{append}{ext}"
+            else:
+                dest_file = f"{root}_{append}{ext}"
+
+            append += 1
+            logger.debug("⚠️ Same name already exists...renaming to: %s", dest_file)
+
+        if file_is_identical:
             duplicate_files.append(src_file)
             continue
 
-        if test:
-            test_file_dict[dest_file] = src_file
-            cnt += 1
-
-        else:
+        if not test:
             if copy_files:
                 shutil.copy2(src_file, dest_file)
                 cnt += 1
             else:
                 shutil.move(src_file, dest_file)
                 cnt += 1
+        else:
+            cnt += 1
 
-        action = "copy" if copy_files else "move" 
-        if not test:
-            percent_complete(step=cnt, total_steps=len(metadata) - 1, title="copying" if copy_files else "moving")
+        progress.update(idx)
+        # percent_complete(step=cnt, total_steps=len(metadata) - 1, title=f"{title} ({mode})")
+        # print()
+
+    progress.finish()
 
     logger.info("")
     logger.info("=" * 64)
