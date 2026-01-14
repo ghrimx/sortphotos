@@ -349,12 +349,10 @@ def sortPhotos(src_dir, dest_dir, sort_format, rename_format, recursive=False,
         if not test:
             if copy_files:
                 shutil.copy2(src_file, dest_file)
-                cnt += 1
             else:
                 shutil.move(src_file, dest_file)
-                cnt += 1
-        else:
-            cnt += 1
+        
+        cnt += 1
 
         progress.update(idx)
         # percent_complete(step=cnt, total_steps=len(metadata) - 1, title=f"{title} ({mode})")
